@@ -1,0 +1,53 @@
+
+services:
+  backend:
+    build:
+      context: ./Backend
+      dockerfile: Dockerfile
+    container_name: backend-container
+    ports:
+      - "8081:8081"
+    environment:
+      - PORT=8081
+      - DB_HOST=db
+      - DB_PORT=3306
+      - DB_USER=root
+      - DB_PASSWORD=591789
+      - DB_NAME=ticket
+    networks:
+      - app-network
+    depends_on:
+      - db
+
+  frontend:
+    build:
+      context: ./Frontend
+      dockerfile: Dockerfile
+    container_name: frontend-container
+    ports:
+      - "3005:80"   # Change 3005 to 80 for frontend inside the container
+    networks:
+      - app-network
+    depends_on:
+      - backend
+
+  db:
+    image: mysql:8.0
+    container_name: mysql-container
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: 591789
+      MYSQL_DATABASE: ticket
+    ports:
+      - "3306:3306"
+    networks:
+      - app-network
+    volumes:
+      - mysql_data:/var/lib/mysql
+
+volumes:
+  mysql_data:
+
+networks:
+  app-network:
+    driver: bridge
