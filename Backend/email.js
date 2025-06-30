@@ -101,7 +101,5 @@ const sendTicketEmail = (recipientEmail, ticketDetails, action) => {
     });
 };
 
-module.exports = sendTicketEmail;
-
 
 module.exports = sendTicketEmail;

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import axios from 'axios';
+//import axios from 'axios';
 import logo from './lociafrica_limited_cover.jpg'
 
 function Login() {
@@ -34,12 +34,19 @@ function Login() {
     if (!validateForm()) return;
     setIsLoading(true);
     setError('');
-
-    axios.post(`${process.env.REACT_APP_BASE_URL}/login`, values)
-      .then(res => {
+    //axios.post(`${process.env.REACT_APP_BASE_URL}/login`, values)
+    fetch("http://localhost:8085/login",{
+      headers:{
+          "Content-Type":"application/json"
+        },
+        method:"POST",
+        body:JSON.stringify(values)
+      }
+    ).then(res => res.json())
+      .then(data => {
         setIsLoading(false);
-        if (res.data.message === "Login successful") {
-          const { role: userRole, email: userEmail, name: userName, id: userId, authToken } = res.data;
+        if (data.message === "Login successful") {
+          const { role: userRole, email: userEmail, name: userName, id: userId, authToken } = data;
           localStorage.setItem('authToken', authToken);
           localStorage.setItem('userRole', userRole);
           localStorage.setItem('userName', userName);
@@ -49,6 +56,7 @@ function Login() {
         }
       })
       .catch(err => {
+        console.log(err)
         setIsLoading(false);
         if (err.response) {
           if (err.response.status === 403) {

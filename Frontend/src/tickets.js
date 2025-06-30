@@ -160,6 +160,7 @@ function TicketManagement() {
 
     const handleAssignTicket = async (ticketNumber, assignedUserId) => {
         try {
+            console.log(assignedUserId)
             const response = await axios.put(
                 `${process.env.REACT_APP_BASE_URL}/tickets/${ticketNumber}/assign`,
                 { ticket_number: ticketNumber, user_id: assignedUserId }, // Send correct IDs
@@ -197,6 +198,7 @@ function TicketManagement() {
     };
 
     const handleEditAssignedUser = async (ticketNumber, newAssignedUserId) => {
+       
         try {
             const response = await axios.put(
                 `${process.env.REACT_APP_BASE_URL}/ticket/${ticketNumber}/edit-assigned`,
@@ -534,13 +536,13 @@ function TicketManagement() {
                                         <th>Support Agent</th>
                                         <th>Status</th>
                                         <th>Priority</th>
-                                        {userRole === "admin" && <th>Actions</th>} {/* Fixed alignment issue */}
+                                        {userRole === "admin" ? <th>Actions</th> :  <th></th> } 
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {tickets.map((ticket) => (
-                                        <tr key={ticket.id}>
-                                            <td>{ticket.name}</td>
+                                    {tickets.map((ticket,index) => (
+                                        <tr key={index}>
+                                            <td>{ticket.customer.name}</td>
                                             <td>{ticket.ticket_number}</td>
                                             <td>{ticket.title}</td>
                                             <td>{ticket.description}</td>
@@ -550,9 +552,9 @@ function TicketManagement() {
                                                         value={ticket.assigned_to || ""}
                                                         onChange={(e) => handleEditAssignedUser(ticket.ticket_number, e.target.value)}
                                                     >
-                                                        <option value="">Unassigned</option>
-                                                        {supportAgents.map((user) => (
-                                                            <option key={user.id} value={user.id}>
+                                                        
+                                                        {supportAgents.map((user,index) => (
+                                                            <option key={index} value={user.id}>
                                                                 {user.name}
                                                             </option>
                                                         ))}
@@ -569,8 +571,8 @@ function TicketManagement() {
                                                     >
                                                         <option value="">Select Employee</option>
                                                         <option value="Unassigned">Unassigned</option>
-                                                        {supportAgents.map((user) => (
-                                                            <option key={user.id} value={user.id}>
+                                                        {supportAgents.map((user,index) => (
+                                                            <option key={index} value={user._id}>
                                                                 {user.name}
                                                             </option>
                                                         ))}
@@ -579,7 +581,7 @@ function TicketManagement() {
                                                     <span>Unassigned</span>
                                                 )}
                                             </td>
-                                            {/* Status Column */}
+                                           
                                             <td>
                                                 {userRole === "admin" || userRole === "support agent" ? (
                                                     <select
@@ -592,10 +594,10 @@ function TicketManagement() {
                                                         <option value="closed">Closed</option>
                                                     </select>
                                                 ) : (
-                                                    ticket.status.charAt(0).toUpperCase() + ticket.status.slice(1) // Capitalize first letter
+                                                    ticket.status.charAt(0).toUpperCase() + ticket.status.slice(1)
                                                 )}
                                             </td>
-                                            {/* Priority Column */}
+                                         
                                             <td>
                                                 <span
                                                     className={`badge ${ticket.priority === 'low' ? 'bg-success' :

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import axios from 'axios';
+//import axios from 'axios';
 import logo from './lociafrica_limited_cover.jpg';
 
 function Register() {
@@ -19,8 +19,8 @@ function Register() {
   };
 
   const handleSubmit = async (event) => {
+    
     event.preventDefault();
-
     let validationErrors = {};
 
     if (!values.name.trim()) {
@@ -47,7 +47,14 @@ function Register() {
     setLoading(true);
 
     try {
-      await axios.post(`${process.env.REACT_APP_BASE_URL}/register`, values);
+      //await axios.post(`${process.env.REACT_APP_BASE_URL}/register`, values);
+      await fetch("http://localhost:8085/register",{
+        headers:{
+          "Content-Type":"application/json"
+        },
+        method:"POST",
+        body:JSON.stringify(values)
+      })
       setLoading(false);
       navigate('/');
     } catch (err) {
@@ -56,6 +63,7 @@ function Register() {
       if (err.response?.data?.error?.code === 'ER_DUP_ENTRY') {
         setErrors({ email: 'This email is already registered' });
       } else {
+        console.log(err)
         setErrors({ general: 'An unexpected error occurred. Please try again.' });
       }
     }

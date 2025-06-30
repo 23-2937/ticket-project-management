@@ -1,34 +1,30 @@
-// controllers/controller.js (Your original file, with minor adjustments)
 const XLSX = require('xlsx');
-const service = require('../Service/service'); // This will now use the Mongoose-based service
-const sendTicketEmail = require("../email"); // Assuming this utility is still valid
+const service = require('../Service/service');
+const sendTicketEmail = require("../email");
 
 // ====================================================
 // Authentication & User Management Controllers
 // ====================================================
 
-// Controller: addCustomer
+//  Controller: addCustomer
 const addCustomer = async (req, res) => {
-    console.log("Adding customer...");
+    console.log("rrrrrrrrrrrrrrrrrrrrrrrrrrrrr");
     const { name, email, password } = req.body;
-    console.log(req.body);
+    console.log(req.body)
 
     if (!name || !email || !password) {
-        return res.status(400).json({ success: false, message: 'All fields are required' });
+        return res.status(400).json({ success: false, message: 'All fields are required' })
+
     }
 
     try {
         await service.register(name, email, password);
-        return res.json({ success: true, message: 'Registration successful' });
+        return res.json({ success: true, message: 'Registration successfully' })
     } catch (err) {
-        console.error('Error in addCustomer:', err);
-        // Handle specific Mongoose unique constraint errors if needed
-        if (err.message.includes('Email already registered')) {
-            return res.status(409).json({ success: false, message: err.message }); // 409 Conflict
-        }
-        return res.status(500).json({ success: false, message: 'Internal server error' });
+        console.error(err);
+        return res.status(500).json({ success: false, message: err.message })
     }
-};
+}
 
 // Controller: login
 const login = async (req, res) => {
@@ -47,11 +43,11 @@ const login = async (req, res) => {
                 name: result.user.name,
                 role: result.user.role,
                 email: result.user.email,
-                id: result.user.id, // Now MongoDB's _id
+                id: result.user.id,
                 authToken: result.authToken
             });
         }
-        // Check if the error message is due to inactivity
+        // ✅ Check if the error message is due to inactivity
         else if (result.error === "Your account is inactive. Please contact support.") {
             return res.status(403).json({ message: result.error }); // 403 = Forbidden
         }
@@ -59,15 +55,17 @@ const login = async (req, res) => {
             return res.status(401).json({ message: 'Invalid email or password' });
         }
     } catch (error) {
-        console.error('Error in login:', error);
+        console.error(error);
         return res.status(500).json({ message: 'Internal server error' });
     }
 };
 
+
 // Controller: userProfile
 const userProfile = async (req, res) => {
+
     try {
-        const { email } = req.body; // Assuming email is sent in body for profile lookup
+        const { email } = req.body;
 
         if (!email) {
             return res.status(400).json({ message: 'Email is required' });
@@ -86,8 +84,8 @@ const userProfile = async (req, res) => {
             return res.status(404).json({ message: 'User not found' });
         }
     } catch (err) {
-        console.error('Error in userProfile:', err);
-        return res.status(500).json({ message: 'Internal server error', error: err.message });
+        console.error(err);
+        return res.status(500).json({ message: 'Internal server error', error: err });
     }
 };
 
@@ -100,7 +98,7 @@ const changePassword = async (req, res) => {
         return res.status(401).json({ error: 'Unauthorized: Missing or invalid token' });
     }
 
-    const authToken = authHeader.split(' ')[1];
+    const authToken = authHeader.split(' ')[1]; // Extract the token after "Bearer"
 
     try {
         const response = await service.changePasswordService(authToken, currentPassword, newPassword);
@@ -111,6 +109,7 @@ const changePassword = async (req, res) => {
     }
 };
 
+
 const updateProfile = async (req, res) => {
     const { email, name } = req.body;
 
@@ -120,16 +119,19 @@ const updateProfile = async (req, res) => {
 
     try {
         await service.updateProfileService(name, email);
-        return res.status(200).json({ message: 'Profile updated successfully' });
+        return res.status(200).json({ message: 'Profile updated successfully' });  // ✅ Ensure a correct success response
     } catch (error) {
         console.error('Error updating profile:', error);
         return res.status(500).json({ message: 'Error updating profile', error: error.message });
     }
 };
 
+
+
 // ====================================================
 // User Management Controllers
 // ====================================================
+
 
 // Controller: getUsers
 const getUsers = async (req, res) => {
@@ -145,7 +147,7 @@ const getUsers = async (req, res) => {
 
 // Controller: changeRole
 const changeRole = async (req, res) => {
-    const { id } = req.params; // This `id` will be the MongoDB _id string
+    const { id } = req.params;
     const { role } = req.body;
 
     try {
@@ -155,9 +157,8 @@ const changeRole = async (req, res) => {
 
         const result = await service.changeRoleService(id, role);
 
-        // Mongoose findByIdAndUpdate returns null if not found, we check for that
-        if (result.affectedRows === 0) { // Mimicking original behavior
-            return res.status(404).json({ message: 'User not found or Invalid ID' });
+        if (result.affectedRows === 0) {
+            return res.status(404).json({ message: 'User not found' });
         }
 
         return res.json({ message: 'Role updated successfully' });
@@ -169,16 +170,17 @@ const changeRole = async (req, res) => {
 
 // Controller: deactivateUser
 const deactivateUser = async (req, res) => {
-    const { id } = req.params; // MongoDB _id string
+    const { id } = req.params;
 
     try {
         const result = await service.handleDeactivate(id);
 
-        if (!result) { // If service returns null, user was not found or invalid ID
+        if (!result) {
             return res.status(404).json({ message: 'User not found' });
         }
 
         return res.json({ message: `User status changed to ${result.status}` });
+
     } catch (err) {
         console.error('Error changing the user status:', err);
         return res.status(500).json({ message: 'Internal server error', error: err.message });
@@ -187,20 +189,22 @@ const deactivateUser = async (req, res) => {
 
 // Controller: deleteUser
 const deleteUser = async (req, res) => {
-    const { id } = req.params; // MongoDB _id string
+    const { id } = req.params;
     try {
         const result = await service.handleDeleteService(id);
 
-        if (result.affectedRows === 0) { // Mimicking original behavior
-            return res.status(404).json({ message: 'User not found or Invalid ID' });
+        if (result.affectedRows === 0) {
+            return res.status(404).json({ message: 'User not found' });
         }
 
         return res.json({ message: 'User deleted successfully' });
+
     } catch (err) {
         console.error('Error deleting user:', err);
         return res.status(500).json({ message: 'Internal server error', error: err.message });
     }
 };
+
 
 // ====================================================
 // Ticket Management Controllers
@@ -210,35 +214,33 @@ const deleteUser = async (req, res) => {
 const createTicket = async (req, res) => {
     try {
         const { title, description, priority } = req.body;
-        // userId from auth middleware is preferred, fallback to body (less secure)
-        const customer = req.userId || req.body.user_id;
+        const user_id = req.userId || req.body.user_id;
 
         if (!title || !description || !priority) {
             return res.status(400).json({ message: 'All fields are required' });
         }
-        if (!customer) {
-            return res.status(401).json({ message: 'Unauthorized: User ID missing for ticket creation' });
-        }
 
-        const result = await service.createTicketService({ customer, title, description, priority });
+        // Call `createTicketService` directly
+        const result = await service.createTicketService({ user_id, title, description, priority });
 
-        res.status(201).json({
-            message: 'Ticket created successfully',
-            ticketId: result.ticket_number // Now the auto-incremented number
+        // Respond immediately before attempting to send email
+        res.status(201).json({ 
+            message: 'Ticket created successfully', 
+            ticketId: result.ticket_number 
         });
 
         // Send email notification (failures won't affect the API response)
         try {
             await sendTicketEmail(
-                result.user_email,
-                {
-                    ticketId: result.ticket_number,
-                    subject: result.title,
+                result.user_email, 
+                { 
+                    ticketId: result.ticket_number, 
+                    subject: result.title, 
                     status: result.status
                 },
                 "created"
             );
-
+            
         } catch (emailError) {
             console.error("Error sending email:", emailError);
         }
@@ -248,6 +250,8 @@ const createTicket = async (req, res) => {
         return res.status(500).json({ message: error.message || 'Internal server error' });
     }
 };
+
+
 
 const uploadBulkyTicket = async (req, res) => {
     try {
@@ -264,6 +268,7 @@ const uploadBulkyTicket = async (req, res) => {
             return res.status(400).json({ message: "Invalid Excel file" });
         }
 
+        // ✅ Ensure required columns exist
         const requiredColumns = ["title", "description", "priority"];
         const firstRow = Object.keys(jsonData[0] || {});
         const missingColumns = requiredColumns.filter(col => !firstRow.includes(col));
@@ -272,16 +277,19 @@ const uploadBulkyTicket = async (req, res) => {
             return res.status(400).json({ message: `Missing columns: ${missingColumns.join(", ")}` });
         }
 
-        const normalizeText = (text) => String(text).toLowerCase().trim().replace(/\s+/g, " ");
+        // ✅ Trim and normalize text for comparisons
+        const normalizeText = (text) => text.toLowerCase().trim().replace(/\s+/g, " ");
 
+        // ✅ Check for empty fields
         const emptyRows = jsonData.filter(row =>
-            requiredColumns.some(col => !row[col] || String(row[col]).trim() === "")
+            requiredColumns.some(col => !row[col] || row[col].toString().trim() === "")
         );
 
         if (emptyRows.length > 0) {
             return res.status(400).json({ message: "Some rows contain empty required fields." });
         }
 
+        // ✅ Remove duplicate tickets from the uploaded Excel file
         const uniqueTickets = [];
         const ticketSet = new Set();
 
@@ -297,17 +305,20 @@ const uploadBulkyTicket = async (req, res) => {
             return res.status(400).json({ message: "No unique tickets found in the file." });
         }
 
-        let user_id = req.userId || req.body.user_id;
+        // ✅ Use req.userId if user_id is not provided in the request
+        let user_id = req.body.user_id || req.userId;
 
         if (!user_id) {
             return res.status(401).json({ message: "Unauthorized: User ID not found" });
         }
 
-        const existingTickets = await service.getExistingTickets();
-        const existingSet = new Set(existingTickets.map(ticket =>
+        // ✅ Check for duplicate tickets in the database
+        const existingTickets = await service.getExistingTickets(); // Fetch existing tickets
+        const existingSet = new Set(existingTickets.map(ticket => 
             `${normalizeText(ticket.title)}|${normalizeText(ticket.description)}`
         ));
 
+        // ✅ Filter out tickets that already exist in the database
         const newTickets = uniqueTickets.filter(ticket => {
             const key = `${normalizeText(ticket.title)}|${normalizeText(ticket.description)}`;
             return !existingSet.has(key);
@@ -317,6 +328,7 @@ const uploadBulkyTicket = async (req, res) => {
             return res.status(400).json({ message: "All tickets already exist in the database." });
         }
 
+        // ✅ Insert only unique and new tickets
         const insertedRows = await service.uploadBulkyTicketService(newTickets, user_id);
         return res.status(201).json({ message: `${insertedRows} new tickets uploaded successfully!` });
 
@@ -327,8 +339,8 @@ const uploadBulkyTicket = async (req, res) => {
 };
 
 const editTicket = async (req, res) => {
-    const { ticketNumber } = req.params; // This is the auto-incremented ticket_number
-    const { user_id } = req.body; // The ID of the agent to assign to
+    const { ticketNumber } = req.params;
+    const { user_id } = req.body;
 
     if (!user_id) {
         return res.status(400).json({ message: "User ID is required." });
@@ -344,12 +356,12 @@ const editTicket = async (req, res) => {
         // Send email notification (failures won't affect the API response)
         try {
             await sendTicketEmail(
-                updatedTicket.user_email,
-                {
-                    ticketId: updatedTicket.ticket_number,
+                updatedTicket.user_email, 
+                { 
+                    ticketId: updatedTicket.ticket_number, 
                     status: updatedTicket.status
                 },
-                "assigned" // Using "assigned" email template for reassign/edit
+                "assigned"
             );
         } catch (emailError) {
             console.error("Error sending email:", emailError);
@@ -362,23 +374,24 @@ const editTicket = async (req, res) => {
     }
 };
 
+
+
+
+
 // Controller: getTickets
 const getTickets = async (req, res) => {
     try {
         const searchQuery = req.query.query || "";
         const role = req.query.role;
-        const userId = req.query.userId; // This userId should now be the MongoDB _id string
-        const page = parseInt(req.query.page) || 1;
-        const limit = parseInt(req.query.limit) || 20;
+        const userId = req.query.userId;
+        const page = parseInt(req.query.page) || 1; // Default to page 1
+        const limit = parseInt(req.query.limit) || 20; // Default limit to 20
 
         if (!role || !userId) {
-            // Depending on your auth, userId might be in req.userId from middleware
-            // For admin, userId might not be strictly needed for *all* tickets.
-            // Adjust validation based on how admins fetch tickets.
-            // For now, mirroring original, assuming userId for role-based filtering.
             return res.status(400).json({ message: "User role and ID are required" });
         }
 
+        // Call service with pagination
         const result = await service.getTicketsService(searchQuery, role, userId, page, limit);
 
         return res.status(200).json(result);
@@ -388,9 +401,10 @@ const getTickets = async (req, res) => {
     }
 };
 
+
 // Controller: updateTicketStatus
 const updateTicketStatus = async (req, res) => {
-    const { ticket_number, status } = req.body; // ticket_number is the auto-incremented field
+    const { ticket_number, status } = req.body;
 
     try {
         const result = await service.updateTicketStatusService(ticket_number, status);
@@ -405,13 +419,13 @@ const updateTicketStatus = async (req, res) => {
         if (result.user_email) {
             try {
                 await sendTicketEmail(
-                    result.user_email,
-                    {
-                        ticketId: result.ticket_number,
+                    result.user_email, 
+                    { 
+                        ticketId: result.ticket_number, 
                         title: result.title,
-                        status: result.status
+                        status: result.status 
                     },
-                    "resolved" // Assuming this is for status change to "resolved"
+                    "resolved"
                 );
             } catch (emailError) {
                 console.error("Error sending email:", emailError);
@@ -423,9 +437,10 @@ const updateTicketStatus = async (req, res) => {
     }
 };
 
+
 // Controller: assignTicket
 const assignTicket = async (req, res) => {
-    const { ticket_number, user_id } = req.body; // user_id here is the agent's MongoDB _id
+    const { ticket_number, user_id } = req.body;
 
     if (!ticket_number || !user_id) {
         return res.status(400).json({ message: "Ticket number and user ID are required." });
@@ -443,11 +458,11 @@ const assignTicket = async (req, res) => {
         // Send email notification
         try {
             await sendTicketEmail(
-                ticketDetails.user_email,
-                {
-                    ticketId: ticketDetails.ticket_number,
-                    title: ticketDetails.title,
-                    status: ticketDetails.status
+                ticketDetails.user_email, 
+                { 
+                    ticketId: ticketDetails.ticket_number, 
+                    title: ticketDetails.title, 
+                    status: ticketDetails.status 
                 },
                 "assigned"
             );
@@ -461,6 +476,10 @@ const assignTicket = async (req, res) => {
         res.status(500).json({ message: "Internal server error." });
     }
 };
+
+
+
+
 
 // ====================================================
 // Support Agent and Customer Management Controllers
@@ -503,31 +522,32 @@ const fetchCustomers = async (req, res) => {
 
 // Controller: sendMessages
 const sendMessages = async (req, res) => {
-    const { receiverId, senderId, message } = req.body; // These are MongoDB _ids
+    const { receiverId, senderId, message } = req.body;
     try {
         const results = await service.sendMessagesService(receiverId, senderId, message);
         return res.status(201).json(results);
     } catch (err) {
-        console.error("Error sending message:", err);
+        console.error("Error sending message:", err); // Log error
         res.status(500).json({ error: "Failed to send message" });
     }
 };
 
 // Controller: fetchMessages
 const fetchMessages = async (req, res) => {
-    const { receiverId } = req.params; // This is a MongoDB _id
+    const { receiverId } = req.params;
     try {
         const messages = await service.fetchMessagesService(receiverId);
         res.json(messages);
     } catch (err) {
-        console.error("Error fetching messages:", err);
+        console.error("Error fetching messages:", err); // Log error
         res.status(500).json({ error: "Error fetching messages" });
     }
 };
 
-// ====================================================
-// Stats and Count Controllers
-// ====================================================
+
+//  ====================================================
+//  Stats and Count Controllers
+//  ====================================================
 
 // Controller: fetchTicketCount
 const fetchTicketCount = async (req, res) => {
@@ -537,7 +557,7 @@ const fetchTicketCount = async (req, res) => {
         res.json({ count });
     } catch (err) {
         console.error('Error fetching ticket count:', err);
-        res.status(500).json({ message: 'Internal server error', error: err.message });
+        res.status(500).json({ message: 'Internal server error', error: err });
     }
 };
 
@@ -568,7 +588,7 @@ const fetchTicketPriority = async (req, res) => {
     try {
         const ticketPriority = await service.getTicketPriorityService();
 
-        if (!ticketPriority) { // Service might return empty object, not null
+        if (!ticketPriority) {
             return res.status(404).json({ error: 'No ticket priority data found' });
         }
 
@@ -600,7 +620,7 @@ const fetchTicketsDashboard = async (req, res) => {
 
 // Delete Ticket Controller
 const deleteTicket = async (req, res) => {
-    const { id } = req.params; // This will be the MongoDB _id string
+    const { id } = req.params;
 
     if (!id) {
         return res.status(400).json({ error: "Ticket ID is required" });
@@ -626,5 +646,5 @@ module.exports = {
     assignTicket, fetchSupportAgents, sendMessages, fetchMessages,
     fetchCustomers, fetchAgentCount, fetchTicketCount, fetchTicketStats,
     fetchTicketPriority, fetchTicketStatus, fetchTicketsDashboard, deleteTicket,
-    uploadBulkyTicket, fetchTopSupportAgents, updateProfile, editTicket
-};
+    uploadBulkyTicket,fetchTopSupportAgents,updateProfile,editTicket
+}

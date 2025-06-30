@@ -142,7 +142,7 @@ function Dashboard() {
       }
 
       const data = await response.json();
-      setTickets(data);
+      setTickets(data.latestTickets);
     } catch (error) {
       console.error("Error fetching tickets:", error);
     }
@@ -416,8 +416,8 @@ function Dashboard() {
 
               {/* Agents Row */}
               <div className="d-flex gap-3 flex-wrap justify-content-center">
-                {agents.map((agent) => (
-                  <div key={agent.id} className="text-center border rounded p-2">
+                {agents.map((agent,index) => (
+                  <div key={index} className="text-center border rounded p-2">
                     <div className="rounded-circle overflow-hidden mx-auto">
                       <img
                         src={avatar}
@@ -469,9 +469,9 @@ function Dashboard() {
               </thead>
               <tbody>
                 {filteredTickets.length > 0 ? (
-                  filteredTickets.map((ticket) => (
-                    <tr key={ticket.id}>
-                      <td>{ticket.name}</td>
+                  filteredTickets.map((ticket,index) => (
+                    <tr key={index}>
+                      <td>{ticket.customer.name}</td>
                       <td>{ticket.ticket_number}</td>
                       <td>{ticket.title}</td>
                       <td>{ticket.description}</td>

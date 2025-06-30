@@ -1,724 +1,694 @@
-// Importing Required Modules
-const pool = require('../database');
-const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
-const express = require('express');
-const { useCallback } = require('react');
+// service/service.js
+const User = require('../models/User');
+const Ticket = require('../models/Ticket');
+const Message = require('../models/Message');
+const jwt = require('jsonwebtoken'); // Assuming you're using JWT for authentication
+const bcrypt = require('bcryptjs'); // For password hashing
+const mongoose = require('mongoose'); // Needed for ObjectId validation
 
-// Secret Key for JWT Token
-const secretKey = process.env.SECRET_KEY;
+// ====================================================
+// Authentication & User Management Services
+// ====================================================
 
-/***********************
- * User Registration and Authentication
- ***********************/
-
-// Register a new user
 const register = async (name, email, password) => {
     try {
-        // Hash the password before storing it
-        const hashedPassword = await bcrypt.hash(password, 10);
+        const existingUser = await User.findOne({ email });
+        if (existingUser) {
+            throw new Error('Email already registered');
+        }
 
-        const [results] = await pool.promise().query(
-            "INSERT INTO registration (name, email, password) VALUES (?, ?, ?)",
-            [name, email, hashedPassword]
-        );
-
-        return results;
-    } catch (err) {
-        console.error(err);
-        throw new Error('Error registering user');
+        const newUser = new User({ name, email, password });
+        await newUser.save();
+        return { success: true, message: 'Registration successful' };
+    } catch (error) {
+        throw error;
     }
 };
 
-// Authenticate user (login)
 const authenticateUser = async (email, password) => {
     try {
-        const sql = "SELECT * FROM registration WHERE email = ?";
-        const [data] = await pool.promise().query(sql, [email]);
+        const user = await User.findOne({ email });
 
-        if (data.length > 0) {
-            const user = data[0];
-
-            // 🚨 Check if the user is inactive
-            if (user.status !== "active") {
-                return { success: false, error: "Your account is inactive. Please contact support." };
-            }
-
-            const validPassword = await bcrypt.compare(password, user.password);
-            if (validPassword) {
-                const authToken = jwt.sign(
-                    { id: user.id, email: user.email, role: user.role },
-                    secretKey,
-                    { expiresIn: '10m' }
-                );
-
-
-                return { success: true, user, authToken };
-            }
+        if (!user) {
+            return { success: false, error: 'Invalid email or password' };
         }
-        return { success: false, error: "Invalid email or password." };
-    } catch (err) {
-        console.error(err);
-        throw new Error('Error authenticating user');
+
+        if (user.status === 'inactive') {
+            return { success: false, error: 'Your account is inactive. Please contact support.' };
+        }
+
+        const isMatch = await user.comparePassword(password);
+        if (!isMatch) {
+            return { success: false, error: 'Invalid email or password' };
+        }
+
+        // Generate JWT token
+        const authToken = jwt.sign(
+            { id: user._id, email: user.email, role: user.role },
+            process.env.JWT_SECRET,
+            { expiresIn: '1h' } // Token expires in 1 hour
+        );
+
+        return {
+            success: true,
+            user: {
+                name: user.name,
+                role: user.role,
+                email: user.email,
+                id: user._id, // MongoDB's _id
+            },
+            authToken
+        };
+    } catch (error) {
+        console.error('Error in authenticateUser:', error);
+        throw new Error('Authentication failed');
     }
 };
 
+const getUserProfile = async (email) => {
+    try {
+        const user = await User.findOne({ email }).select('-password'); // Exclude password
+        return user;
+    } catch (error) {
+        throw error;
+    }
+};
 
-
-// Change user password
 const changePasswordService = async (authToken, currentPassword, newPassword) => {
     try {
-        const decoded = jwt.verify(authToken, '591789@@KELVIN');
-        const userId = decoded.id;
+        const decoded = jwt.verify(authToken, process.env.JWT_SECRET);
+        const user = await User.findById(decoded.id);
 
-        if (!userId) {
-            return { status: 401, data: { error: 'Unauthorized: Invalid token payload' } };
-        }
-
-        const [userRows] = await pool.promise().query(
-            'SELECT password FROM registration WHERE id = ?',
-            [userId]
-        );
-
-        if (userRows.length === 0) {
+        if (!user) {
             return { status: 404, data: { error: 'User not found' } };
         }
 
-        const currentPasswordHash = userRows[0].password;
-
-        const isMatch = await bcrypt.compare(currentPassword, currentPasswordHash);
+        const isMatch = await user.comparePassword(currentPassword);
         if (!isMatch) {
-            return { status: 400, data: { error: 'Incorrect current password' } };
+            return { status: 401, data: { error: 'Invalid current password' } };
         }
 
-        const isSamePassword = await bcrypt.compare(newPassword, currentPasswordHash);
-        if (isSamePassword) {
-            return { status: 400, data: { error: 'New password must be different from the current password' } };
-        }
-
-        const salt = await bcrypt.genSalt(10);
-        const newPasswordHash = await bcrypt.hash(newPassword, salt);
-
-        await pool.promise().query(
-            'UPDATE registration SET password = ? WHERE id = ?',
-            [newPasswordHash, userId]
-        );
-
-        return { status: 200, data: { success: 'Password changed successfully' } };
+        user.password = newPassword; // Mongoose pre-save hook will hash it
+        await user.save();
+        return { status: 200, data: { message: 'Password updated successfully' } };
     } catch (error) {
         if (error.name === 'JsonWebTokenError') {
-            return { status: 400, data: { error: 'Invalid token' } };
-        } else if (error.name === 'TokenExpiredError') {
-            return { status: 401, data: { error: 'Token has expired' } };
+            return { status: 401, data: { error: 'Unauthorized: Invalid token' } };
         }
-
-        console.error('Error changing password:', error);
-        throw new Error('An error occurred while changing the password');
-    }
-};
-
-/***********************
- * User Profile and Management
- ***********************/
-
-// Get user profile by email
-const getUserProfile = async (email) => {
-    try {
-        const [results] = await pool.promise().query('SELECT * FROM registration WHERE email = ?', [email]);
-        return results.length ? results[0] : null;
-    } catch (err) {
-        console.error(err);
-        throw new Error('Error fetching profile');
+        throw error;
     }
 };
 
 const updateProfileService = async (name, email) => {
     try {
-        await pool.promise().query('UPDATE registration SET name = ? WHERE email = ?', [name, email]);
-        return { message: 'Profile updated successfully' };
-    } catch (err) {
-        console.error('Error updating profile:', err);
-        throw new Error('An error occurred while updating the profile');
+        const updatedUser = await User.findOneAndUpdate(
+            { email: email },
+            { name: name, updatedAt: Date.now() },
+            { new: true } // Return the updated document
+        );
+
+        if (!updatedUser) {
+            throw new Error('User not found');
+        }
+        return updatedUser;
+    } catch (error) {
+        throw error;
     }
 };
 
-// Get users with optional search and role filters
+// ====================================================
+// User Management Services
+// ====================================================
+
 const getUsersService = async (search, role) => {
     try {
-        let query = 'SELECT * FROM registration WHERE 1=1';
+        let query = {};
         if (search) {
-            query += ' AND name LIKE ?';
+            query.$or = [
+                { name: { $regex: search, $options: 'i' } },
+                { email: { $regex: search, $options: 'i' } }
+            ];
         }
         if (role) {
-            query += ' AND role = ?';
+            query.role = role;
         }
-
-        query += ' ORDER BY name ASC';
-        const params = [];
-        if (search) params.push(`%${search}%`);
-        if (role) params.push(role);
-
-        const [rows] = await pool.promise().query(query, params);
-        return rows;
+        const users = await User.find(query).select('-password');
+        return users;
     } catch (error) {
-        console.error('Error in userService:', error);
-        throw new Error('Error fetching users');
+        throw error;
     }
 };
 
-// Change user role (admin functionality)
-const changeRoleService = async (id, role) => {
-    const [result] = await pool.promise().query(
-        'UPDATE registration SET role = ? WHERE id = ?',
-        [role, id]
-    );
-    return result;
+const changeRoleService = async (id, newRole) => {
+    try {
+        if (!mongoose.Types.ObjectId.isValid(id)) {
+            return { affectedRows: 0, message: 'Invalid User ID' };
+        }
+
+        const result = await User.findByIdAndUpdate(
+            id,
+            { role: newRole, updatedAt: Date.now() },
+            { new: true } // Return the updated document
+        );
+        return { affectedRows: result ? 1 : 0 }; // Mimic affectedRows from MySQL
+    } catch (error) {
+        throw error;
+    }
 };
 
-// Handle user deactivation (toggle between active/inactive)
 const handleDeactivate = async (id) => {
-    const [user] = await pool.promise().query('SELECT status FROM registration WHERE id = ?', [id]);
-
-    if (user.length === 0) {
-        return null; // User not found
-    }
-
-    const newStatus = user[0].status === 'active' ? 'inactive' : 'active';
-
-    const [result] = await pool.promise().query(
-        'UPDATE registration SET status = ? WHERE id = ?',
-        [newStatus, id]
-    );
-
-    if (result.affectedRows === 0) {
-        return null; // If the update fails
-    }
-
-    return { status: newStatus };
-};
-
-// Handle user deletion
-const handleDeleteService = async (id) => {
-    const [result] = await pool.promise().query(
-        'DELETE FROM registration WHERE id = ?',
-        [id]
-    );
-    return result;
-};
-
-/***********************
- * Ticket Management
- ***********************/
-
-// Create a new support ticket
-const createTicketService = async ({ user_id, assigned_to, title, description, priority }) => {
     try {
-        // Insert the ticket into the database
-        const [result] = await pool.promise().query(
-            'INSERT INTO tickets (user_id, assigned_to, title, description, priority) VALUES (?, ?, ?, ?, ?)',
-            [user_id, assigned_to || null, title, description, priority]
-        );
-
-        const newTicketId = result.insertId;
-        const ticket_number = `T${String(newTicketId).padStart(5, '0')}`;
-
-        // Update the ticket with the generated ticket number
-        await pool.promise().query(
-            'UPDATE tickets SET ticket_number = ? WHERE id = ?',
-            [ticket_number, newTicketId]
-        );
-
-        // Fetch the ticket creator's email and status
-        const [userResult] = await pool.promise().query(
-            'SELECT email FROM registration WHERE id = ?',
-            [user_id]
-        );
-
-        const [ticketResult] = await pool.promise().query(
-            'SELECT status FROM tickets WHERE id = ?',
-            [newTicketId]
-        );
-
-        if (!userResult.length) {
-            throw new Error("User email not found");
+        if (!mongoose.Types.ObjectId.isValid(id)) {
+            return null; // Mimic 'User not found'
         }
 
-        return {
-            ticket_number: ticket_number,
-            title,
-            status: ticketResult[0]?.status || "Pending", // Default status if missing
-            user_email: userResult[0].email
-        };
+        const user = await User.findById(id);
+        if (!user) {
+            return null;
+        }
+
+        user.status = user.status === 'active' ? 'inactive' : 'active';
+        await user.save();
+        return { status: user.status };
     } catch (error) {
-        console.error("Database error:", error);
-        throw new Error("Failed to create ticket. Please try again.");
+        throw error;
     }
 };
 
-
-
-
-const uploadBulkyTicketService = async (tickets, userId) => {
+const handleDeleteService = async (id) => {
     try {
-        if (!Array.isArray(tickets) || tickets.length === 0) {
-            throw new Error("Invalid ticket data");
+        if (!mongoose.Types.ObjectId.isValid(id)) {
+            return { affectedRows: 0, message: 'Invalid User ID' };
         }
 
-        // ✅ Create bulk insert placeholders
-        const placeholders = tickets.map(() => "(?, ?, ?, ?, ?)").join(", ");
-        const values = tickets.flatMap(({ title, description, priority }) => [
-            userId,
-            null, // assigned_to (default NULL)
+        const result = await User.findByIdAndDelete(id);
+        return { affectedRows: result ? 1 : 0 };
+    } catch (error) {
+        throw error;
+    }
+};
+
+// ====================================================
+// Ticket Management Services
+// ====================================================
+
+const createTicketService = async ({ customer, title, description, priority }) => {
+    try {
+        // Find user to get email for notification
+        const user = await User.findById(customer);
+        if (!user) {
+            throw new Error('Customer not found for ticket creation');
+        }
+
+        const newTicket = new Ticket({
+            customer, // user._id
             title,
             description,
-            priority || "medium",
-        ]);
+            priority,
+            status: 'open'
+        });
+        const savedTicket = await newTicket.save();
 
-        // ✅ Insert tickets into the database
-        const [result] = await pool.promise().query(
-            `INSERT INTO tickets (user_id, assigned_to, title, description, priority) VALUES ${placeholders}`,
-            values
-        );
+        return {
+            success: true,
+            ticket_number: savedTicket.ticket_number, // Auto-incremented ID
+            user_email: user.email,
+            title: savedTicket.title,
+            status: savedTicket.status
+        };
+    } catch (error) {
+        throw error;
+    }
+};
 
-        // ✅ Get the range of inserted IDs
-        const firstInsertedId = result.insertId;
-        const rowCount = result.affectedRows;
-
-        if (!firstInsertedId || rowCount === 0) {
-            throw new Error("No tickets were inserted.");
+const uploadBulkyTicketService = async (ticketsData, userId) => {
+    try {
+        // Ensure userId is a valid ObjectId
+        if (!mongoose.Types.ObjectId.isValid(userId)) {
+            throw new Error('Invalid User ID for bulk upload');
         }
 
-        // ✅ Generate ticket numbers for each inserted row
-        const insertedIds = Array.from(
-            { length: rowCount },
-            (_, i) => firstInsertedId + i
-        );
-
-        const updateQueries = insertedIds.map(id => ({
-            ticket_number: `T${String(id).padStart(5, "0")}`,
-            id,
+        const bulkOperations = ticketsData.map(ticket => ({
+            insertOne: {
+                document: {
+                    customer: userId,
+                    title: ticket.title,
+                    description: ticket.description,
+                    priority: ticket.priority,
+                    status: 'open',
+                    createdAt: new Date(),
+                    updatedAt: new Date()
+                }
+            }
         }));
 
-        // ✅ Construct batch update query
-        const updateQuery = `
-            UPDATE tickets
-            SET ticket_number = CASE
-                ${updateQueries.map(({ id }) => `WHEN id = ${id} THEN ?`).join(" ")}
-            END
-            WHERE id IN (${insertedIds.join(",")});
-        `;
-
-        const updateValues = updateQueries.map(({ ticket_number }) => ticket_number);
-
-        // ✅ Execute batch update
-        await pool.promise().query(updateQuery, updateValues);
-
-        return rowCount; // Number of inserted rows
+        const result = await Ticket.bulkWrite(bulkOperations);
+        return result.insertedCount; // Number of documents inserted
     } catch (error) {
-        throw new Error("Database error: " + error.message);
+        throw error;
     }
 };
 
-const editTicketService = async (ticketNumber, user_id) => {
+const getExistingTickets = async () => {
     try {
-        // Update ticket assignment
-        const [updateResult] = await pool.promise().query(
-            "UPDATE tickets SET assigned_to = ? WHERE ticket_number = ?",
-            [user_id, ticketNumber]
-        );
+        // Fetch only title and description for duplicate checking
+        const existingTickets = await Ticket.find({}, 'title description');
+        return existingTickets;
+    } catch (error) {
+        throw error;
+    }
+};
 
-        if (updateResult.affectedRows > 0) {
-            // Fetch updated ticket details
-            const [ticketDetails] = await pool.promise().query(
-                `SELECT t.ticket_number, t.title, t.status, t.assigned_to, u.email AS user_email 
-                 FROM tickets t 
-                 JOIN registration u ON t.assigned_to = u.id 
-                 WHERE t.ticket_number = ?`,
-                [ticketNumber]
-            );        
-            
-            if (ticketDetails.length > 0) {
-                const ticket = ticketDetails[0];
+const editTicketService = async (ticketNumber, userId) => {
+    try {
+        // Find the ticket by its auto-incremented ticket_number
+        const ticket = await Ticket.findOne({ ticket_number: ticketNumber });
 
-                // Log the retrieved email
-                console.log("Retrieved User Email:", ticket.email);
-
-                if (!ticket.user_email) {
-                    console.warn("No email found for assigned user.");
-                    return null; // Prevent sending an email with undefined recipient
-                }
-
-                return ticket;
-            }
+        if (!ticket) {
+            return null; // Ticket not found
         }
-        return null;
+
+        // Validate userId as a valid ObjectId
+        if (!mongoose.Types.ObjectId.isValid(userId)) {
+            throw new Error('Invalid User ID provided for reassignment.');
+        }
+
+        const assignedToUser = await User.findById(userId);
+        if (!assignedToUser) {
+            throw new Error('Assigned user (agent) not found.');
+        }
+        if (assignedToUser.role !== 'agent' && assignedToUser.role !== 'admin') {
+            throw new Error('User can only be assigned to an Agent or Admin.');
+        }
+
+        ticket.assignedTo = userId;
+        ticket.status = 'assigned'; // Update status to assigned
+        await ticket.save(); // Mongoose pre-save hook handles updatedAt
+
+        // Fetch the customer's email for notification
+        const customerUser = await User.findById(ticket.customer);
+        return {
+            ticket_number: ticket.ticket_number,
+            status: ticket.status,
+            user_email: customerUser ? customerUser.email : null, // Ensure email is available
+        };
+
     } catch (error) {
         console.error("Error in editTicketService:", error);
-        throw new Error(error);
-    }
-};
-
-// Get list of tickets with search and role-based filtering for ticket management
-const getTicketsService = async (searchQuery = "", role, userId, page = 1, limit = 20) => {
-    let sql = `
-        SELECT tickets.*, registration.name AS name 
-        FROM tickets 
-        JOIN registration ON tickets.user_id = registration.id
-    `;
-
-    let countSql = `SELECT COUNT(*) as total FROM tickets JOIN registration ON tickets.user_id = registration.id`;
-
-    const values = [];
-    const countValues = [];
-
-    if (role === "admin") {
-        sql += ` WHERE (tickets.title LIKE ? OR registration.name LIKE ?)`;
-        countSql += ` WHERE (tickets.title LIKE ? OR registration.name LIKE ?)`;
-        values.push(`%${searchQuery}%`, `%${searchQuery}%`);
-        countValues.push(`%${searchQuery}%`, `%${searchQuery}%`);
-    } else if (role === "support agent") {
-        sql += ` WHERE tickets.assigned_to = ? AND (tickets.title LIKE ? OR registration.name LIKE ?)`;
-        countSql += ` WHERE tickets.assigned_to = ? AND (tickets.title LIKE ? OR registration.name LIKE ?)`;
-        values.push(userId, `%${searchQuery}%`, `%${searchQuery}%`);
-        countValues.push(userId, `%${searchQuery}%`, `%${searchQuery}%`);
-    } else if (role === "customer") {
-        sql += ` WHERE tickets.user_id = ? AND (tickets.title LIKE ? OR registration.name LIKE ?)`;
-        countSql += ` WHERE tickets.user_id = ? AND (tickets.title LIKE ? OR registration.name LIKE ?)`;
-        values.push(userId, `%${searchQuery}%`, `%${searchQuery}%`);
-        countValues.push(userId, `%${searchQuery}%`, `%${searchQuery}%`);
-    } else {
-        throw new Error("Unauthorized role");
-    }
-
-    // Add pagination
-    const offset = (page - 1) * limit;
-    sql += ` LIMIT ? OFFSET ?`;
-    values.push(parseInt(limit), parseInt(offset));
-
-    try {
-        const [result] = await pool.promise().query(sql, values);
-        const [countResult] = await pool.promise().query(countSql, countValues);
-
-        const totalTickets = countResult[0].total;
-        const totalPages = Math.ceil(totalTickets / limit);
-
-        return { tickets: result, totalTickets, totalPages, currentPage: page };
-    } catch (error) {
-        console.error("Database query error:", error);
         throw error;
     }
 };
 
 
-const getExistingTickets = async () => {
+const getTicketsService = async (searchQuery, role, userId, page, limit) => {
     try {
-        const query = "SELECT LOWER(TRIM(title)) AS title, LOWER(TRIM(description)) AS description FROM tickets";
-        const [rows] = await pool.promise().query(query); // ✅ Fixed the method call
-        return rows;
+        let query = {};
+        let userObjectId;
+
+        // Ensure userId is a valid ObjectId if provided
+        if (userId && mongoose.Types.ObjectId.isValid(userId)) {
+            userObjectId = new mongoose.Types.ObjectId(userId);
+        } else {
+            // If userId is invalid or not provided when expected for role-based queries, throw an error
+            if (role === 'customer' || role === 'agent') {
+                throw new Error('Invalid User ID provided for role-based ticket fetching.');
+            }
+        }
+
+        // Build query based on role
+        if (role === 'customer' && userObjectId) {
+            query.customer = userObjectId;
+        } else if (role === 'agent' && userObjectId) {
+            query.assignedTo = userObjectId;
+        }
+        // Admin role or 'all' will have no specific user filter for tickets
+
+        if (searchQuery) {
+            query.$or = [
+                { title: { $regex: searchQuery, $options: 'i' } },
+                { description: { $regex: searchQuery, $options: 'i' } },
+                { ticket_number: isNaN(parseInt(searchQuery)) ? null : parseInt(searchQuery) } // Search by ticket_number if it's a number
+            ].filter(Boolean); // Remove null entries from $or if ticket_number isn't a number
+        }
+
+        const skip = (page - 1) * limit;
+        const totalTickets = await Ticket.countDocuments(query);
+        const tickets = await Ticket.find(query)
+            .populate('customer', 'name email') // Populate customer name and email
+            .populate('assignedTo', 'name email') // Populate assigned agent name and email
+            .sort({ createdAt: -1 })
+            .skip(skip)
+            .limit(limit);
+
+        return {
+            tickets,
+            currentPage: page,
+            totalPages: Math.ceil(totalTickets / limit),
+            totalTickets
+        };
     } catch (error) {
-        console.error("Database Error:", error);
-        return [];
+        throw error;
     }
 };
 
-
-
-// Update the status of a ticket
 const updateTicketStatusService = async (ticket_number, status) => {
-    const [ticket] = await pool.promise().query(
-        `SELECT t.assigned_to, t.resolved_at, t.title, r.email AS user_email 
-         FROM tickets t 
-         JOIN registration r ON t.assigned_to = r.id 
-         WHERE t.ticket_number = ?`,
-        [ticket_number]
-    );
-
-    if (ticket.length === 0) {
-        return { success: false, message: "Ticket not found" };
-    }
-
-    const { assigned_to, resolved_at, title, user_email } = ticket[0];
-
-    if (!assigned_to) {
-        return { success: false, message: "Ticket must be assigned before changing status." };
-    }
-
-    if (status === "closed" && !resolved_at) {
-        return { success: false, message: "Ticket must be resolved before marking as closed." };
-    }
-
-    let sql = `UPDATE tickets SET status = ?`;
-    let values = [status];
-
-    if (status === "resolved") {
-        sql += `, resolved_at = NOW()`;
-    } else if (status === "closed") {
-        sql += `, closed_at = NOW()`;
-    } else if (status === "open" || status === "in progress") {
-        sql += `, resolved_at = NULL, closed_at = NULL`; // Reset timestamps
-    }
-
-    sql += ` WHERE ticket_number = ?`;
-    values.push(ticket_number);
-
-    const [result] = await pool.promise().query(sql, values);
-
-    return result.affectedRows > 0
-        ? { success: true, user_email, ticket_number, status, title }
-        : { success: false, message: "Update failed." };
-};
-
-
-// Assign a ticket to a user
-const assignTicketService = async (ticket_number, user_id) => {
     try {
-        const [updateResult] = await pool.promise().query(
-            "UPDATE tickets SET assigned_to = ? WHERE ticket_number = ?",
-            [user_id, ticket_number]
-        );
+        const ticket = await Ticket.findOneAndUpdate(
+            { ticket_number: ticket_number },
+            { status: status, updatedAt: Date.now() },
+            { new: true } // Return the updated document
+        ).populate('customer', 'email name'); // Populate customer to get email for notification
 
-        if (updateResult.affectedRows === 0) {
-            return null; // No ticket was updated
+        if (!ticket) {
+            return { success: false, message: 'Ticket not found.' };
         }
 
-        // Fetch updated ticket details for email notification
-        const [ticketResult] = await pool.promise().query(
-            "SELECT t.ticket_number, t.title, t.status, u.email AS user_email FROM tickets t JOIN registration u ON t.assigned_to = u.id  WHERE t.ticket_number = ?",
-            [ticket_number]
-        );
-
-        return ticketResult.length > 0 ? ticketResult[0] : null;
+        return {
+            success: true,
+            ticket_number: ticket.ticket_number,
+            title: ticket.title,
+            status: ticket.status,
+            user_email: ticket.customer ? ticket.customer.email : null
+        };
     } catch (error) {
-        console.error("Database error:", error);
-        throw new Error("Failed to assign ticket. Please try again.");
+        throw error;
     }
 };
 
 
-// fetch tickets for dashboard
-
-
-const fetchTicketsDashboardService = async (selectedDate) => {
+const assignTicketService = async (ticket_number, userId) => {
     try {
-        let query = `
-           SELECT 
-                tickets.*, 
-                registration.name, 
-                assigned_user.name AS assigned_to
-            FROM tickets 
-            JOIN registration ON tickets.user_id = registration.id
-            LEFT JOIN registration AS assigned_user ON tickets.assigned_to = assigned_user.id
-        `;
-
-        const queryParams = [];
-
-        if (selectedDate) {
-            query += ` WHERE DATE(tickets.created_at) = ?`;
-            queryParams.push(selectedDate);
+        // Validate userId as a valid ObjectId
+        if (!mongoose.Types.ObjectId.isValid(userId)) {
+            throw new Error('Invalid User ID provided for assignment.');
         }
 
-        query += ` ORDER BY tickets.created_at DESC LIMIT 10`; // ✅ Fetch only 10 tickets
+        const assignedToUser = await User.findById(userId);
+        if (!assignedToUser) {
+            throw new Error('Assigned user (agent/admin) not found.');
+        }
+        if (assignedToUser.role !== 'agent' && assignedToUser.role !== 'admin') {
+            throw new Error('Ticket can only be assigned to an Agent or Admin.');
+        }
 
-        const [tickets] = await pool.promise().query(query, queryParams);
-        return tickets;
+        const ticket = await Ticket.findOneAndUpdate(
+            { ticket_number: ticket_number, status: { $ne: 'closed' } }, // Can't assign closed tickets
+            { assignedTo: userId, status: 'assigned', updatedAt: Date.now() },
+            { new: true } // Return the updated document
+        ).populate('customer', 'email name'); // Populate customer to get email for notification
+
+        if (!ticket) {
+            return null; // Ticket not found or already closed
+        }
+
+        return {
+            ticket_number: ticket.ticket_number,
+            title: ticket.title,
+            status: ticket.status,
+            user_email: ticket.customer ? ticket.customer.email : null
+        };
     } catch (error) {
-        throw new Error("Error fetching tickets: " + error.message);
+        throw error;
     }
 };
 
-
-
-/***********************
- * Support Agents and Customers
- ***********************/
-
-// Get list of support agents
+// ====================================================
+// Support Agent and Customer Management Services
+// ====================================================
 
 const getSupportAgentService = async () => {
     try {
-        const [agents] = await pool.promise().query(`
-            SELECT id, name FROM registration WHERE role = 'support agent'
-        `);
+        const agents = await User.find({ role: 'agent', status: 'active' }).select('-password');
         return agents;
     } catch (error) {
-        throw new Error("Error fetching all support agents: " + error.message);
+        throw error;
     }
 };
 
 const getTopSupportAgentService = async () => {
     try {
-        const [agents] = await pool.promise().query(`
-            SELECT r.id, r.name, COUNT(t.id) AS solved_tickets
-            FROM registration r
-            LEFT JOIN tickets t ON r.id = t.assigned_to AND t.status = 'resolved'
-            WHERE r.role = 'support agent'
-            GROUP BY r.id, r.name
-            ORDER BY solved_tickets DESC
-            LIMIT 3
-        `);
-        return agents;
+        // This aggregation pipeline counts resolved tickets for each agent
+        const topAgents = await Ticket.aggregate([
+            { $match: { status: 'resolved', assignedTo: { $ne: null } } },
+            { $group: {
+                _id: '$assignedTo',
+                resolvedTickets: { $sum: 1 }
+            }},
+            { $sort: { resolvedTickets: -1 } },
+            { $limit: 5 }, // Get top 5 agents
+            { $lookup: {
+                from: 'users', // The collection name for the User model
+                localField: '_id',
+                foreignField: '_id',
+                as: 'agentDetails'
+            }},
+            { $unwind: '$agentDetails' },
+            { $project: {
+                _id: 0,
+                agentId: '$_id',
+                name: '$agentDetails.name',
+                email: '$agentDetails.email',
+                resolvedTickets: '$resolvedTickets'
+            }}
+        ]);
+        return topAgents;
     } catch (error) {
-        throw new Error("Error fetching top support agents: " + error.message);
+        throw error;
     }
 };
 
-
-
-// Get list of customers
 const getCustomerService = async () => {
     try {
-        const [customers] = await pool.promise().query("SELECT id, name FROM registration WHERE role = 'customer'");
+        const customers = await User.find({ role: 'customer' }).select('-password');
         return customers;
     } catch (error) {
-        throw new Error("Error fetching customers: " + error.message);
+        throw error;
+    }
+};
+
+// ====================================================
+// Messaging & Communication Services
+// ====================================================
+
+const sendMessagesService = async (receiverId, senderId, messageContent) => {
+    try {
+        // Validate sender and receiver IDs
+        if (!mongoose.Types.ObjectId.isValid(receiverId) || !mongoose.Types.ObjectId.isValid(senderId)) {
+            throw new Error('Invalid sender or receiver ID.');
+        }
+
+        const newMessage = new Message({
+            sender: senderId,
+            receiver: receiverId,
+            message: messageContent
+        });
+        await newMessage.save();
+        return { success: true, message: 'Message sent' };
+    } catch (error) {
+        throw error;
+    }
+};
+
+const fetchMessagesService = async (receiverId) => {
+    try {
+        if (!mongoose.Types.ObjectId.isValid(receiverId)) {
+            throw new Error('Invalid receiver ID.');
+        }
+        // Fetch messages where the current user is either sender or receiver
+        const messages = await Message.find({
+            $or: [
+                { sender: receiverId },
+                { receiver: receiverId }
+            ]
+        })
+        .populate('sender', 'name email') // Populate sender details
+        .populate('receiver', 'name email') // Populate receiver details
+        .sort({ createdAt: 1 }); // Sort by creation time
+
+        return messages;
+    } catch (error) {
+        throw error;
+    }
+};
+
+// ====================================================
+// Stats and Count Services
+// ====================================================
+
+const fetchTicketCountService = async (month) => {
+    try {
+        let query = {};
+        if (month) {
+            const year = new Date().getFullYear(); // Assuming current year
+            const startOfMonth = new Date(year, month - 1, 1);
+            const endOfMonth = new Date(year, month, 0, 23, 59, 59, 999); // Last day of month
+            query.createdAt = { $gte: startOfMonth, $lte: endOfMonth };
+        }
+        const count = await Ticket.countDocuments(query);
+        return count;
+    } catch (error) {
+        throw error;
     }
 };
 
 const fetchAgentCountService = async () => {
     try {
-        const [result] = await pool.promise().query("SELECT COUNT(*) AS count FROM registration WHERE role = 'support agent' ");
-        return result[0].count;
-    } catch (err) {
-        throw err;
+        const count = await User.countDocuments({ role: 'agent' });
+        return count;
+    } catch (error) {
+        throw error;
     }
 };
 
-/***********************
- * Messaging Service
- ***********************/
-
-// Send a message between users
-const sendMessagesService = async (receiverId, senderId, message) => {
-    const query = "INSERT INTO messages(receiver_id, sender_id, message, status) VALUES (?, ?, ?, 'sent')";
-    try {
-        const [result] = await pool.promise().query(query, [receiverId, senderId, message]);
-        return { id: result.insertId, receiverId, senderId, message, status: "sent" };
-    } catch (err) {
-        throw err;
-    }
-};
-
-// Fetch messages for a specific receiver
-const fetchMessagesService = async (receiverId) => {
-    const query = "SELECT * FROM messages WHERE receiver_id = ? ORDER BY timestamp ASC";
-    try {
-        const [result] = await pool.promise().query(query, [receiverId]);
-        return result;
-    } catch (err) {
-        throw err;
-    }
-};
-
-/***********************
- * Ticket Statistics
- ***********************/
-
-// Fetch the count of tickets
-const fetchTicketCountService = async (month = null) => {
-    try {
-        let query = 'SELECT COUNT(*) AS count FROM tickets';
-        let params = [];
-
-        if (month) {
-            query += ' WHERE MONTH(created_at) = ?';
-            params.push(parseInt(month));
-        }
-
-        const [result] = await pool.promise().query(query, params);
-        return result[0].count;
-    } catch (err) {
-        throw err;
-    }
-};
-
-// Fetch ticket statistics (total and resolved)
 const fetchTicketStatsService = async () => {
     try {
-        const [totalResult] = await pool.promise().query('SELECT COUNT(*) AS total FROM tickets');
-        const [resolvedResult] = await pool.promise().query('SELECT COUNT(*) AS resolved FROM tickets WHERE status = "resolved"');
+        const stats = await Ticket.aggregate([
+            {
+                $group: {
+                    _id: '$status',
+                    count: { $sum: 1 }
+                }
+            },
+            {
+                $project: {
+                    _id: 0,
+                    status: '$_id',
+                    count: 1
+                }
+            }
+        ]);
 
-        return {
-            total: totalResult[0].total,
-            resolved: resolvedResult[0].resolved
-        };
-    } catch (err) {
-        console.error('Database query error:', err.message);
-        throw err;
+        // Transform array of objects into a more accessible object
+        const formattedStats = {};
+        stats.forEach(stat => {
+            formattedStats[stat.status] = stat.count;
+        });
+        return formattedStats;
+    } catch (error) {
+        throw error;
     }
 };
 
-/***********************
- * Ticket Priority Stats
- ***********************/
-
-// Fetch the count of tickets by priority
 const getTicketPriorityService = async () => {
     try {
-        const [rows] = await pool.promise().query(`
-            SELECT 
-                SUM(CASE WHEN priority = 'critical' THEN 1 ELSE 0 END) AS critical,
-                SUM(CASE WHEN priority = 'high' THEN 1 ELSE 0 END) AS high,
-                SUM(CASE WHEN priority = 'medium' THEN 1 ELSE 0 END) AS medium,
-                SUM(CASE WHEN priority = 'low' THEN 1 ELSE 0 END) AS low
-            FROM tickets
-        `);
+        const priorityStats = await Ticket.aggregate([
+            {
+                $group: {
+                    _id: '$priority',
+                    count: { $sum: 1 }
+                }
+            },
+            {
+                $project: {
+                    _id: 0,
+                    priority: '$_id',
+                    count: 1
+                }
+            }
+        ]);
 
-        return rows[0]; // ✅ Returns the first row of results
-    } catch (err) {
-        console.error('An error occurred while fetching ticket priority:', err);
-        return null; // ✅ Returns a fallback value to avoid crashes
+        // Transform array into an object for easier consumption
+        const result = {};
+        priorityStats.forEach(item => {
+            result[item.priority] = item.count;
+        });
+        return result;
+    } catch (error) {
+        throw error;
     }
 };
 
 const fetchTicketStatusService = async () => {
     try {
-        const query = 'SELECT status, COUNT(*) AS count FROM tickets GROUP BY status';
-        const [results] = await pool.promise().query(query);
-        const ticketData = {
-            open: 0,
-            inProgress: 0,
-            resolved: 0,
-            closed: 0
-        };
-
-        results.forEach(row => {
-            const key = row.status.toLowerCase().replace(/\s+/g, "");
-            if (ticketData.hasOwnProperty(key)) {
-                ticketData[key] = row.count;
+        const statusData = await Ticket.aggregate([
+            {
+                $group: {
+                    _id: '$status',
+                    count: { $sum: 1 }
+                }
+            },
+            {
+                $project: {
+                    _id: 0,
+                    status: '$_id',
+                    count: 1
+                }
             }
-        });
+        ]);
 
-        return ticketData;
-    } catch (err) {
-        throw err;
+        const result = {};
+        statusData.forEach(item => {
+            result[item.status] = item.count;
+        });
+        return result;
+    } catch (error) {
+        throw error;
     }
 };
 
-// Delete Ticket Service
-const deleteTicketService = async (ticketId) => {
+const fetchTicketsDashboardService = async () => {
     try {
-        const sql = "DELETE FROM tickets WHERE id = ?";
-        const [result] = await pool.promise().query(sql, [ticketId]);
+        // Example: Get latest 5 tickets
+        const latestTickets = await Ticket.find({})
+            .populate('customer', 'name email')
+            .populate('assignedTo', 'name email')
+            .sort({ createdAt: -1 })
+            .limit(5);
 
-        if (result.affectedRows === 0) {
-            return { success: false, error: "Ticket not found" };
-        }
-        return { success: true, message: "Ticket deleted successfully" };
+        // You can add more dashboard-specific data here if needed
+        return { latestTickets };
     } catch (error) {
-        console.error("Error deleting ticket:", error);
-        throw new Error("Database error while deleting ticket");
+        throw error;
+    }
+};
+
+
+const deleteTicketService = async (id) => {
+    try {
+        // MongoDB's _id is typically a string, ensure it's a valid ObjectId
+        if (!mongoose.Types.ObjectId.isValid(id)) {
+            return { success: false, error: 'Invalid Ticket ID provided.' };
+        }
+
+        const result = await Ticket.findByIdAndDelete(id);
+
+        if (!result) {
+            return { success: false, error: 'Ticket not found.' };
+        }
+        return { success: true, message: 'Ticket deleted successfully!' };
+    } catch (error) {
+        throw error;
     }
 };
 
 
 module.exports = {
-    register, authenticateUser, getUserProfile,
-    changePasswordService, getUsersService, changeRoleService,
-    handleDeactivate, handleDeleteService, createTicketService,
-    getTicketsService, updateTicketStatusService, assignTicketService,
-    getSupportAgentService, sendMessagesService, fetchMessagesService,
-    getCustomerService, fetchTicketCountService, fetchAgentCountService,
-    fetchTicketStatsService, getTicketPriorityService, fetchTicketStatusService,
-    fetchTicketsDashboardService, deleteTicketService, uploadBulkyTicketService,
-    getExistingTickets, getTopSupportAgentService, updateProfileService, editTicketService
+    register,
+    authenticateUser,
+    getUserProfile,
+    changePasswordService,
+    updateProfileService,
+    getUsersService,
+    changeRoleService,
+    handleDeactivate,
+    handleDeleteService,
+    createTicketService,
+    uploadBulkyTicketService,
+    getExistingTickets,
+    editTicketService,
+    getTicketsService,
+    updateTicketStatusService,
+    assignTicketService,
+    getSupportAgentService,
+    getTopSupportAgentService,
+    getCustomerService,
+    sendMessagesService,
+    fetchMessagesService,
+    fetchTicketCountService,
+    fetchAgentCountService,
+    fetchTicketStatsService,
+    getTicketPriorityService,
+    fetchTicketStatusService,
+    fetchTicketsDashboardService,
+    deleteTicketService
 };
