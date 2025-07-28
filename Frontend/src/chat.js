@@ -10,7 +10,7 @@ import Button from "react-bootstrap/Button";
 import logo from "./logo.png";
 
 const socket = io(`${process.env.REACT_APP_BASE_URL}`);
-
+//toString
 function Chat() {
     const [messages, setMessages] = useState([]);
     const [newMessage, setNewMessage] = useState("");
@@ -38,6 +38,7 @@ function Chat() {
             setMessages(data);
         };
 
+        console.log("Selected agent: ",selectedAgent)
         const handleNewMessage = (message) => {
             const normalizedMessage = {
                 ...message,
@@ -80,7 +81,7 @@ function Chat() {
     }, [userId, activeChats]);
 
     useEffect(() => {
-
+        console.log(messages)
     }, [messages]);
 
     useEffect(() => {
@@ -108,6 +109,7 @@ function Chat() {
     };
 
     const formatTimestamp = (timestamp) => {
+        console.log(timestamp)
         const date = new Date(timestamp);
         const now = new Date();
 
@@ -144,7 +146,7 @@ function Chat() {
 
         const messageData = {
             senderId: userId,
-            receiverId: selectedAgent.id,
+            receiverId: selectedAgent._id,
             message: newMessage.trim(),
             timestamp: new Date().toISOString(),
 
@@ -323,14 +325,14 @@ function Chat() {
                                         ))
                                         : customers.length > 0
                                             ? customers.map((customer) => (
-                                                <li key={customer.id}
+                                                <li key={customer._id}
                                                     className="p-2 border-bottom text-dark"
                                                     onClick={() => handleUserClick(customer)}
                                                     style={{ cursor: "pointer" }}>
                                                     {customer.name}
-                                                    {unreadMessages[String(customer.id)] && unreadMessages[String(customer.id)] > 0 && (
+                                                    {unreadMessages[String(customer._id)] && unreadMessages[String(customer._id)] > 0 && (
                                                         <span className="badge bg-danger ms-4">
-                                                            {unreadMessages[String(customer.id)]}
+                                                            {unreadMessages[String(customer._id)]}
                                                         </span>
                                                     )}
 
@@ -352,8 +354,8 @@ function Chat() {
                                 {selectedAgent && (
                                     <div className="border-bottom pb-2 mb-2 text-left bg-light p-2 rounded">
                                         <h5 className="mb-0 text-primary">{selectedAgent.name}</h5>
-                                        <small className={onlineUsers.includes(selectedAgent.id.toString()) ? "text-success" : "text-muted"}>
-                                            {onlineUsers.includes(selectedAgent.id.toString()) ? "Online" : "Offline"}
+                                        <small className={onlineUsers.includes(selectedAgent._id) ? "text-success" : "text-muted"}>
+                                            {onlineUsers.includes(selectedAgent._id) ? "Online" : "Offline"}
                                         </small>
                                     </div>
                                 )}
@@ -362,17 +364,17 @@ function Chat() {
                                     {messages.length > 0 ? (
                                         messages
                                             .filter(msg =>
-                                                (String(msg.sender_id) === String(userId) && String(msg.receiver_id) === String(selectedAgent?.id || msg.receiver_id)) ||
-                                                (String(msg.sender_id) === String(selectedAgent?.id || msg.sender_id) && String(msg.receiver_id) === String(userId))
+                                                (String(msg.sender._id) === String(userId) && String(msg.receiver.toString()) === String(selectedAgent?._id || msg.receiver.toString())) ||
+                                                (String(msg.sender._id) === String(selectedAgent?._id || msg.sender._id) && String(msg.receiver.toString()) === String(userId))
                                             )
                                             .map((msg, index) => (
-                                                <div key={index} className={`d-flex mb-2 ${String(msg.sender_id) === String(userId) ? "justify-content-end" : "justify-content-start"}`}>
-                                                    <div className={`p-2 rounded shadow-sm ${String(msg.sender_id) === String(userId) ? "bg-primary text-white" : "bg-light text-dark"}`}
+                                                <div key={index} className={`d-flex mb-2 ${String(msg.sender._id) === String(userId) ? "justify-content-end" : "justify-content-start"}`}>
+                                                    <div className={`p-2 rounded shadow-sm ${String(msg.sender._id) === String(userId) ? "bg-primary text-white" : "bg-light text-dark"}`}
                                                         style={{ maxWidth: "75%" }}>
                                                         {msg.message}
                                                         <small className="d-block text-muted"
                                                             style={{ fontSize: '10px', textAlign: "right", color: String(msg.sender_id) === String(userId) ? "white" : "black" }}>
-                                                            {msg.timestamp ? formatTimestamp(msg.timestamp) : "Just now"}
+                                                            {msg.timestamp ? formatTimestamp(msg.createdAt) : "Just now"}
                                                         </small>
                                                     </div>
                                                 </div>

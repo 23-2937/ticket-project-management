@@ -75,9 +75,10 @@ function Dashboard() {
   //Resolved tickets percentage
   const fetchTicketStats = async () => {
     try {
-      const response = await axios.get(`${process.env.REACT_APP_BASE_URL}/tickets/stats`);
-      setTotalCount(response.data.total);
-      setResolvedCount(response.data.resolved);
+      const {data} = await axios.get(`${process.env.REACT_APP_BASE_URL}/tickets/stats`);
+      const totalCount = data.open + data.resolved + data.closed;
+      setTotalCount(totalCount || 0);
+      setResolvedCount(data.resolved);
     } catch (err) {
       console.error("Error fetching ticket stats:", err.message);
     }

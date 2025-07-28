@@ -123,6 +123,7 @@ function UserManagement() {
             setShowDeleteModal(false);
             await fetchUsers(); // Refresh user list
         } catch (err) {
+        console.log(err)
             setErrorMessage(err.response?.data?.message || 'Error deleting user');
         }
     };
@@ -390,7 +391,7 @@ function UserManagement() {
                                                 </div>
                                                 <div className="modal-footer">
                                                     <button className="btn btn-secondary" onClick={() => setShowDeleteModal(false)}>Cancel</button>
-                                                    <button className="btn btn-danger" onClick={() => handleDelete(selectedUser.id)}>
+                                                    <button className="btn btn-danger" onClick={() => handleDelete(selectedUser._id)}>
                                                         Yes, delete Account
                                                     </button>
                                                 </div>

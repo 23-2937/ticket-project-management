@@ -1,7 +1,19 @@
-const pool = require("./database");
-
+const Message = require("./models/Message")
 let onlineUsers = {}; // Stores online users: { userId: socketId }
 
+const mongoose = require('mongoose');
+// Your Express app
+const DB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/your_chat_db';
+
+mongoose.connect(DB_URI)
+.then(() => {
+  console.log('MongoDB connected successfully!');
+})
+.catch(err => {
+  console.error('MongoDB connection error:', err);
+  // Exit the process if DB connection fails critical for app functionality
+  process.exit(1);
+});
 module.exports = (io) => {
     io.on("connection", (socket) => {
 
@@ -15,10 +27,10 @@ module.exports = (io) => {
         
             try {
                 // Fetch undelivered messages from the database
-                const [pendingMessages] = await pool.promise().query(
-                    "SELECT * FROM messages WHERE receiver_id = ? AND status = 'sent' ORDER BY timestamp ASC",
-                    [userId]
-                );                      
+               const pendingMessages = await Message.find({
+                receiver: userId,
+                status: 'sent'
+                }).sort({ createdAt: 1 });                    
                 // Send each pending message to the receiver using the room
                 pendingMessages.forEach((msg) => {
                     io.to(userId).emit("receive_message", msg);
@@ -27,9 +39,9 @@ module.exports = (io) => {
                 // Update messages as delivered if there are any pending
                 if (pendingMessages.length > 0) {
                     const messageIds = pendingMessages.map((msg) => msg.id);
-                    await pool.promise().query(
-                        "UPDATE messages SET status = 'delivered' WHERE id IN (?)",
-                        [messageIds]
+                    await Message.updateMany(
+                    { _id: { $in: messageIds } },
+                    { $set: { status: 'delivered' } }
                     );
                 }
             } catch (err) {
@@ -42,25 +54,21 @@ module.exports = (io) => {
         socket.on("send_message", async ({ receiverId, senderId, message }) => {
             console.log(`Sending message from ${senderId} to ${receiverId}`);
             try {
-                const query = "INSERT INTO messages (receiver_id, sender_id, message, status) VALUES (?, ?, ?, 'sent')";
-                const [result] = await pool.promise().query(query, [receiverId, senderId, message]);
+                const newMessage = new Message({
+                receiver: receiverId,
+                sender: senderId,
+                message: message,
+                status: 'sent' 
+                });
+                await newMessage.save();
         
-                const newMessage = {
-                    id: result.insertId,
-                    receiverId,
-                    senderId,
-                    message,
-                    status: "sent",
-                    timestamp: new Date(),
-                };
-        
-                console.log("New message inserted:", newMessage);
+                console.log("New message inserted");
         
                 if (onlineUsers[receiverId]) {
                     newMessage.status = "delivered";
+                    newMessage.save();
         
-                    const updateQuery = "UPDATE messages SET status = 'delivered' WHERE id = ?";
-                    await pool.promise().query(updateQuery, [newMessage.id]);
+                    await Message.findByIdAndUpdate(newMessage._id, { $set: { status: 'delivered' } });
         
                     console.log("Message delivered to receiver");
         
@@ -85,7 +93,7 @@ module.exports = (io) => {
         // ✅ Mark Message as Read
         socket.on("message_read", async ({ messageId, senderId }) => {
             try {
-                await pool.promise().query("UPDATE messages SET status = 'seen' WHERE id = ?", [messageId]);
+               await Message.findByIdAndUpdate(messageId, { $set: { status: 'seen' } });
 
                 // Notify sender that their message was seen
                 io.to(senderId).emit("message_seen", { messageId });
@@ -95,21 +103,20 @@ module.exports = (io) => {
         });
 
         // 📜 Load Previous Messages
-        socket.on("load_messages", async ({ senderId, receiverId }) => {
+        socket.on("load_messages", async ({ senderId,  }) => {
             try {
-                const query = `
-                    SELECT m.*, r.name AS sender_name 
-                    FROM messages m
-                    JOIN registration r ON m.sender_id = r.id
-                    WHERE (m.sender_id = ? AND m.receiver_id = ?) 
-                       OR (m.sender_id = ? AND m.receiver_id = ?) 
-                    ORDER BY m.timestamp ASC
-                `;
-
-                const [rows] = await pool.promise().query(query, [senderId, receiverId, receiverId, senderId]);
-
+               const messages = await Message.find({
+                $or: [
+                    { sender: senderId},
+                    {  receiver: senderId }
+                ]
+                })
+                .sort({ createdAt: 1 })
+                .populate('sender', 'name') // Assuming 'User' model and 'name' field
+                .lean(); // Use .lean() for plain JavaScript objects
+                console.log(messages)
                 // Emit messages with sender names
-                socket.emit("previous_messages", rows);
+                socket.emit("previous_messages", messages);
             } catch (err) {
                 console.error("❌ Error fetching messages:", err);
             }
@@ -117,7 +124,7 @@ module.exports = (io) => {
 
      // 🔴 User Disconnects
        // Handle disconnect event
-  socket.on("disconnect", () => {
+   socket.on("disconnect", () => {
     let disconnectedUserId = null;
     // Find the user by matching socket IDs
     Object.keys(onlineUsers).forEach((userId) => {

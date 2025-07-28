@@ -361,7 +361,7 @@ const editTicket = async (req, res) => {
         return res.status(500).json({ message: "Internal server error" });
     }
 };
-
+//deleteUser
 // Controller: getTickets
 const getTickets = async (req, res) => {
     try {
